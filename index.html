@@ -7,7 +7,7 @@
 <style>
   :root{
     --black:#05060b;--navy:#0b1533;--navy2:#13224d;--line:#25396e;
-    --ink:#f2f6ff;--sub:#9db0dd;--pink:#ff2bd6;--cyan:#3be8ff;
+    --ink:#f2f6ff;--sub:#9db0dd;--pink:#ff2bd6;--cyan:#3be8ff;--lime:#b6ff3b;--red:#ff6b6b;
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;color:var(--ink);
@@ -25,37 +25,55 @@
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin:9px 3px 2px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .dot{width:12px;height:12px;border-radius:50%;display:inline-block}
-  .dot.me{background:var(--pink);box-shadow:0 0 8px var(--pink)}
-  .dot.t{background:var(--pink)}
   .dot.me{background:#b6ff3b;box-shadow:0 0 8px #b6ff3b}
+  .dot.t{background:var(--pink)}
   .dot.r{border:1.5px dashed var(--cyan);background:transparent}
   .summary{margin:18px 2px 10px;font-size:19px;font-weight:700;display:flex;align-items:center;gap:8px}
   .summary b{color:var(--pink);text-shadow:0 0 10px rgba(255,43,214,.6)}
-  .item{display:flex;gap:12px;align-items:center;background:var(--navy2);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:9px}
+  .item{display:flex;gap:12px;align-items:center;background:var(--navy2);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:9px;cursor:pointer;transition:transform .08s}
+  .item:active{transform:scale(.985)}
   .item.first{border:2px solid var(--cyan);box-shadow:0 0 18px rgba(59,232,255,.25)}
+  .item.sel{border:2px solid var(--lime);box-shadow:0 0 16px rgba(182,255,59,.3)}
+  .item.closed{opacity:.6}
   .num{flex:none;width:36px;height:36px;border-radius:50%;background:var(--pink);color:#fff;display:grid;place-items:center;font-weight:800;box-shadow:0 0 12px rgba(255,43,214,.6)}
   .info{flex:1;min-width:0}
   .name{font-weight:700;font-size:16px}
   .meta{font-size:13px;color:var(--sub);margin-top:2px}
   .tag{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:99px;background:rgba(59,232,255,.15);color:var(--cyan);font-size:12px;font-weight:700}
+  .tag.open{background:rgba(182,255,59,.16);color:var(--lime)}
+  .tag.shut{background:rgba(255,107,107,.18);color:var(--red)}
   .dist{flex:none;text-align:right}
   .dist .m{font-size:21px;font-weight:800;color:var(--ink)}
   .dist .t{font-size:12px;color:var(--sub)}
   .empty{background:var(--navy2);border:1px dashed var(--line);border-radius:14px;padding:14px;font-size:14px;color:var(--sub);margin-bottom:9px}
-  .reset{margin-top:12px;width:100%;padding:13px;border-radius:14px;border:1.5px solid var(--pink);background:transparent;color:var(--pink);font-size:15px;font-weight:700;cursor:pointer;text-shadow:0 0 8px rgba(255,43,214,.5)}
-  .reset:active{background:rgba(255,43,214,.12)}
   @keyframes pulse{0%{r:9;opacity:.9}100%{r:26;opacity:0}}
   .pulse{animation:pulse 1.6s ease-out infinite}
   @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.1}}
   .blink,.siren{animation:blink .8s steps(1) infinite}
   .siren{flex:none;font-size:22px;margin-left:-4px}
+  .route{margin-top:12px;background:linear-gradient(160deg,var(--navy2),var(--navy));border:1.5px solid var(--lime);border-radius:16px;padding:12px 14px;box-shadow:0 0 18px rgba(182,255,59,.18)}
+  .rtop{display:flex;gap:14px;align-items:center}
+  .arrow{flex:none;width:52px;height:52px;border-radius:50%;background:rgba(182,255,59,.12);border:1.5px solid var(--lime);display:grid;place-items:center;overflow:hidden}
+  .arrow i{font-style:normal;font-size:26px;line-height:1;color:var(--lime);text-shadow:0 0 10px var(--lime);display:block;transition:transform .25s}
+  .rt{font-size:18px;font-weight:800}
+  .rt b{color:var(--lime);text-shadow:0 0 8px rgba(182,255,59,.6)}
+  .rs{font-size:13px;color:var(--sub);margin-top:2px}
+  .addr{font-size:13px;color:var(--ink);margin-top:10px}
+  .go{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .go a{flex:1 1 30%;text-align:center;text-decoration:none;font-size:14px;font-weight:800;padding:11px 8px;border-radius:12px;border:1.5px solid var(--lime);color:var(--lime);background:rgba(182,255,59,.08)}
+  .go a.main{background:var(--lime);color:#071300}
+  .rn{font-size:11.5px;color:var(--sub);opacity:.85;margin-top:9px}
+  @keyframes flow{to{stroke-dashoffset:-26}}
+  .flow{animation:flow .9s linear infinite}
+  .reset{margin-top:12px;width:100%;padding:13px;border-radius:14px;border:1.5px solid var(--pink);background:transparent;color:var(--pink);font-size:15px;font-weight:700;cursor:pointer;text-shadow:0 0 8px rgba(255,43,214,.5)}
+  .reset:active{background:rgba(255,43,214,.12)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1><span class="badge">💩</span><span>500m <em>화장실</em> 찾기</span></h1>
-  <p class="lead">🧍 지도를 눌러 지금 있는 곳을 찍으면, 반경 500m 안 화장실이 가까운 순서로 나와요.</p>
-  <div class="notice"><span>⚠️</span><span>지금 보이는 화장실은 <b>사용법을 보여 주는 예시 데이터</b>입니다(서울시청 주변 가상 위치).</span></div>
+  <p class="lead">🧍 지도를 눌러 내 위치를 정하면, 반경 500m 안 화장실이 가까운 순서로 나와요. 시작 위치는 <b>연산역</b>입니다.</p>
+  <div class="notice"><span>⚠️</span><span><b>시작 위치(연산역)는 가상</b>이고, 지도 위 화장실 위치는 <b>주소 번호로 추정한 대략값</b>입니다. 길찾기 버튼은 <b>실제 주소</b>로 연결돼요. 이름·주소·개방시간·편의시설은 공공데이터포털에 등록된 공중화장실 데이터 기준이라 방문 전에 확인하세요.</span></div>
 
   <div class="mapbox">
     <svg id="map" viewBox="0 0 360 360" role="img" aria-label="내 위치와 주변 화장실 지도">
@@ -74,41 +92,71 @@
     </div>
   </div>
 
+  <div class="route" id="route"></div>
   <div class="summary" id="summary"></div>
   <div id="list"></div>
-  <button class="reset" id="reset">🧍 처음 위치로 되돌리기</button>
+  <button class="reset" id="reset">🧍 연산역으로 되돌리기</button>
 </div>
 
 <script>
 (function(){
-  var SIZE=360, MPP=1100/SIZE, R=500, WALK=70;
+  var SIZE=360, MPP=1400/SIZE, R=500, WALK=70;
   var PINK='#ff2bd6', LIME='#b6ff3b', CYAN='#3be8ff', GRID='#18275a', DIM='#5b6fa8';
-  var ICON={"공원":"🌳","지하철역":"🚇","공공시설":"🏛️","공용":"💩","터미널":"🚌"};
-  // 예시 데이터: 기준점(0,0)에서 동쪽(dx)·북쪽(dy) 미터
+  var ICON={"지하철역":"🚇","건물":"🏢","마트":"🛒","시장":"🛍️"};
+  var DIRS=['북','북동','동','남동','남','남서','서','북서'];
+  // 연산역(가상 시작점)을 (0,0)으로 한 대략 위치(m). 중앙대로 주소 번호(10m 간격)로 추정.
   var TOILETS=[
-    {name:"예시 · 공원 화장실",type:"공원",dx:-120,dy:90},
-    {name:"예시 · 지하철역 화장실",type:"지하철역",dx:210,dy:-60},
-    {name:"예시 · 도서관 화장실",type:"공공시설",dx:60,dy:-260},
-    {name:"예시 · 주민센터 화장실",type:"공공시설",dx:-330,dy:-150},
-    {name:"예시 · 시장 공용화장실",type:"공용",dx:380,dy:230},
-    {name:"예시 · 버스터미널 화장실",type:"터미널",dx:-80,dy:420},
-    {name:"예시 · 체육공원 화장실",type:"공원",dx:-470,dy:300}
+    {name:"연산역 화장실(3호선)",type:"지하철역",dx:12,dy:-18,addr:"부산 연제구 중앙대로 지하 1101",h:"05:00~24:00",amen:"장애인용 변기 · 기저귀 교환대 · 비상벨 · 입구 CCTV"},
+    {name:"은강빌딩",type:"건물",dx:-64,dy:-102,addr:"부산 연제구 중앙대로 1089",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
+    {name:"진도빌딩",type:"건물",dx:-90,dy:-145,addr:"부산 연제구 중앙대로 1084",h:"09:00~18:00",amen:"어린이용 변기"},
+    {name:"재능빌딩",type:"건물",dx:-106,dy:-170,addr:"부산 연제구 중앙대로 1081",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
+    {name:"해성빌딩",type:"건물",dx:180,dy:289,addr:"부산 연제구 중앙대로 1135",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
+    {name:"㈜BYC마트",type:"마트",dx:307,dy:493,addr:"부산 연제구 중앙대로 1159",h:"09:00~18:00",amen:"어린이용 변기"},
+    {name:"영남종합시장",type:"시장",dx:-376,dy:-603,addr:"부산 연제구 중앙대로 1030-1",h:"24",amen:"어린이용 변기"}
   ];
-  var me={x:0,y:0};
+  var me={x:0,y:0}, sel=null;
   var svg=document.getElementById('map'), layer=document.getElementById('layer');
-  var list=document.getElementById('list'), sum=document.getElementById('summary');
+  var list=document.getElementById('list'), sum=document.getElementById('summary'), routeEl=document.getElementById('route');
   var NS='http://www.w3.org/2000/svg';
 
   function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e;}
   function px(m){return SIZE/2+m/MPP;}
   function py(m){return SIZE/2-m/MPP;}
   function dist(t){var a=t.dx-me.x,b=t.dy-me.y;return Math.sqrt(a*a+b*b);}
+  function mins(s){var p=s.split(':');return (+p[0])*60+(+p[1]);}
+  function isOpen(t){
+    if(t.h==="24")return true;
+    var p=t.h.split('~'), d=new Date(), now=d.getHours()*60+d.getMinutes();
+    return now>=mins(p[0]) && now<mins(p[1]);
+  }
+  function hoursText(t){return t.h==="24"?"24시간":t.h;}
+  function esc(s){return encodeURIComponent(s);}
 
   function render(){
-    var rows=TOILETS.map(function(t){return {t:t,d:dist(t)};}).sort(function(a,b){return a.d-b.d;});
+    var rows=TOILETS.map(function(t){return {t:t,d:dist(t),o:isOpen(t)};})
+      .sort(function(a,b){return (a.o===b.o?0:(a.o?-1:1))||a.d-b.d;});
     var inside=rows.filter(function(r){return r.d<=R;});
     var shown=inside.length?inside:rows.slice(0,1);
+    if(sel&&!shown.some(function(r){return r.t===sel;}))sel=null;
+    var target=sel||shown[0].t;
 
+    // 가는 길 카드
+    var ddx=target.dx-me.x, ddy=target.dy-me.y, td=Math.sqrt(ddx*ddx+ddy*ddy);
+    var brg=(Math.atan2(ddx,ddy)*180/Math.PI+360)%360;
+    var dname=DIRS[Math.round(brg/45)%8];
+    var q=esc(target.addr+' '+target.name);
+    routeEl.innerHTML='<div class="rtop"><div class="arrow"><i style="transform:rotate('+(brg-90)+'deg)">➤</i></div><div><div class="rt"><b></b>쪽으로 약 <b></b></div><div class="rs"></div></div></div>'
+      +'<div class="addr"></div>'
+      +'<div class="go"><a class="main" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+q+'&travelmode=walking">🚶 길찾기 (구글)</a>'
+      +'<a target="_blank" rel="noopener" href="https://map.kakao.com/link/search/'+q+'">카카오맵</a>'
+      +'<a target="_blank" rel="noopener" href="https://map.naver.com/p/search/'+q+'">네이버지도</a></div>'
+      +'<div class="rn">※ 길찾기 버튼을 누르면 지도 앱이 열리고, 출발지는 폰의 현재 위치로 잡혀요. 위 방향·거리는 지도 위 대략 위치 기준입니다.</div>';
+    var bs=routeEl.querySelectorAll('.rt b');
+    bs[0].textContent=dname; bs[1].textContent=(Math.round(td/10)*10)+'m';
+    routeEl.querySelector('.rs').textContent='🚶 걸어서 약 '+Math.max(1,Math.round(td/WALK))+'분 · '+target.name;
+    routeEl.querySelector('.addr').textContent='📍 '+target.addr+' · '+hoursText(target)+' · '+target.amen;
+
+    // 지도
     while(layer.firstChild)layer.removeChild(layer.firstChild);
     for(var g=1;g<6;g++){
       layer.appendChild(el('line',{x1:g*60,y1:0,x2:g*60,y2:SIZE,stroke:GRID,'stroke-width':.8}));
@@ -116,11 +164,14 @@
     }
     var cx=px(me.x), cy=py(me.y);
     layer.appendChild(el('circle',{cx:cx,cy:cy,r:R/MPP,fill:CYAN,'fill-opacity':.06,stroke:CYAN,'stroke-width':1.6,'stroke-dasharray':'6 5','stroke-opacity':.8}));
+    layer.appendChild(el('line',{x1:cx,y1:cy,x2:px(target.dx),y2:py(target.dy),stroke:LIME,'stroke-width':2.5,'stroke-dasharray':'7 6','stroke-linecap':'round','class':'flow'}));
+    layer.appendChild(el('text',{x:px(0),y:py(0)+30,'text-anchor':'middle','font-size':11,fill:DIM},'연산역'));
 
     rows.forEach(function(r){
       var idx=shown.indexOf(r), on=idx>=0, x=px(r.t.dx), y=py(r.t.dy);
       if(on){
-        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:PINK,filter:'url(#glow)'}));
+        if(r.t===target)layer.appendChild(el('circle',{cx:x,cy:y,r:18,fill:'none',stroke:LIME,'stroke-width':2.5}));
+        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:r.o?PINK:'#6b4a78',filter:'url(#glow)'}));
         layer.appendChild(el('text',{x:x,y:y+4.5,'text-anchor':'middle','font-size':13,'font-weight':800,fill:'#fff'},String(idx+1)));
         if(idx===0){layer.appendChild(el('text',{x:x+16,y:y+5,'font-size':16,'class':'blink'},'🚨'));}
       }else{
@@ -128,15 +179,14 @@
       }
     });
 
-    // 내 위치: 형광핑크 + 퍼지는 링
-    var ring=el('circle',{cx:cx,cy:cy,r:9,fill:'none',stroke:LIME,'stroke-width':2.5,'class':'pulse'});
-    layer.appendChild(ring);
+    layer.appendChild(el('circle',{cx:cx,cy:cy,r:9,fill:'none',stroke:LIME,'stroke-width':2.5,'class':'pulse'}));
     var person=el('g',{filter:'url(#glow)',fill:LIME,stroke:'#fff','stroke-width':1.8,'stroke-linejoin':'round'});
     person.appendChild(el('circle',{cx:cx,cy:cy-9,r:5.5}));
     person.appendChild(el('path',{d:'M'+(cx-8.5)+','+(cy+12)+' Q'+(cx-8.5)+','+(cy-1)+' '+cx+','+(cy-1)+' Q'+(cx+8.5)+','+(cy-1)+' '+(cx+8.5)+','+(cy+12)+' Z'}));
     layer.appendChild(person);
     layer.appendChild(el('text',{x:cx,y:cy-24,'text-anchor':'middle','font-size':13,'font-weight':800,fill:LIME,stroke:'#05060b','stroke-width':3,'paint-order':'stroke'},'나'));
 
+    // 목록
     list.innerHTML='';
     if(inside.length){
       sum.innerHTML='💩 500m 안에 <b>'+inside.length+'곳</b>';
@@ -148,12 +198,17 @@
     }
     shown.forEach(function(r,i){
       var d=Math.round(r.d/10)*10, min=Math.max(1,Math.round(r.d/WALK));
-      var it=document.createElement('div');it.className='item'+(i===0?' first':'');
+      var it=document.createElement('div');
+      it.className='item'+(i===0?' first':'')+(r.t===target?' sel':'')+(r.o?'':' closed');
+      it.addEventListener('click',function(){sel=r.t;render();window.scrollTo({top:0,behavior:'smooth'});});
       it.innerHTML='<div class="num">'+(i+1)+'</div>'+(i===0?'<span class="siren">🚨</span>':'')+'<div class="info"><div class="name"></div><div class="meta"></div></div><div class="dist"><div class="m">'+d+'m</div><div class="t">🚶 약 '+min+'분</div></div>';
       it.querySelector('.name').textContent=r.t.name;
       var meta=it.querySelector('.meta');
-      meta.textContent=(ICON[r.t.type]||'💩')+' '+r.t.type;
+      meta.textContent=(ICON[r.t.type]||'💩')+' '+r.t.type+' · '+hoursText(r.t)+' ';
+      var st=document.createElement('span');st.className='tag '+(r.o?'open':'shut');st.textContent=r.o?'지금 열림':'지금 닫힘';meta.appendChild(st);
       if(i===0){var tg=document.createElement('span');tg.className='tag';tg.textContent='⭐ 가장 가까워요';meta.appendChild(tg);}
+      var am=document.createElement('div');am.className='meta';am.textContent='🧰 '+r.t.amen;
+      it.querySelector('.info').appendChild(am);
       list.appendChild(it);
     });
   }
@@ -161,11 +216,19 @@
   function pick(ev){
     var b=svg.getBoundingClientRect();
     var x=(ev.clientX-b.left)/b.width*SIZE, y=(ev.clientY-b.top)/b.height*SIZE;
+    var hit=null, best=20;
+    TOILETS.forEach(function(t){
+      if(dist(t)>R)return;
+      var d=Math.hypot(px(t.dx)-x,py(t.dy)-y);
+      if(d<best){best=d;hit=t;}
+    });
+    if(hit){sel=hit;render();return;}
+    sel=null;
     me={x:(x-SIZE/2)*MPP,y:-(y-SIZE/2)*MPP};
     render();
   }
   svg.addEventListener('click',pick);
-  document.getElementById('reset').addEventListener('click',function(){me={x:0,y:0};render();});
+  document.getElementById('reset').addEventListener('click',function(){me={x:0,y:0};sel=null;render();});
   render();
 })();
 </script>
