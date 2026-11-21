@@ -104,16 +104,11 @@
   var PINK='#ff2bd6', LIME='#b6ff3b', CYAN='#3be8ff', GRID='#18275a', DIM='#5b6fa8';
   var ICON={"지하철역":"🚇","건물":"🏢","마트":"🛒","시장":"🛍️"};
   var DIRS=['북','북동','동','남동','남','남서','서','북서'];
-  // 연산역(가상 시작점)을 (0,0)으로 한 대략 위치(m). 중앙대로 주소 번호(10m 간격)로 추정.
-  var TOILETS=[
-    {name:"연산역 화장실(3호선)",type:"지하철역",dx:12,dy:-18,addr:"부산 연제구 중앙대로 지하 1101",h:"05:00~24:00",amen:"장애인용 변기 · 기저귀 교환대 · 비상벨 · 입구 CCTV"},
-    {name:"은강빌딩",type:"건물",dx:-64,dy:-102,addr:"부산 연제구 중앙대로 1089",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
-    {name:"진도빌딩",type:"건물",dx:-90,dy:-145,addr:"부산 연제구 중앙대로 1084",h:"09:00~18:00",amen:"어린이용 변기"},
-    {name:"재능빌딩",type:"건물",dx:-106,dy:-170,addr:"부산 연제구 중앙대로 1081",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
-    {name:"해성빌딩",type:"건물",dx:180,dy:289,addr:"부산 연제구 중앙대로 1135",h:"09:00~18:00",amen:"장애인용 변기 · 어린이용 변기"},
-    {name:"㈜BYC마트",type:"마트",dx:307,dy:493,addr:"부산 연제구 중앙대로 1159",h:"09:00~18:00",amen:"어린이용 변기"},
-    {name:"영남종합시장",type:"시장",dx:-376,dy:-603,addr:"부산 연제구 중앙대로 1030-1",h:"24",amen:"어린이용 변기"}
-  ];
+  // Supabase (읽기 전용 공개 테이블 public.toilets, publishable 키만 사용)
+  var SB_URL='https://zvndygyxadtddiijzjap.supabase.co';
+  var SB_KEY='sb_publishable_VF3_0zqAseSh68vx8XOBpg_sHTvtg_d';
+  // 연산역(가상 시작점)을 (0,0)으로 한 대략 위치(m)는 DB의 est_dx_m / est_dy_m 칸에서 읽음.
+  var TOILETS=[], status='loading';
   var me={x:0,y:0}, sel=null;
   var svg=document.getElementById('map'), layer=document.getElementById('layer');
   var list=document.getElementById('list'), sum=document.getElementById('summary'), routeEl=document.getElementById('route');
@@ -125,14 +120,20 @@
   function dist(t){var a=t.dx-me.x,b=t.dy-me.y;return Math.sqrt(a*a+b*b);}
   function mins(s){var p=s.split(':');return (+p[0])*60+(+p[1]);}
   function isOpen(t){
-    if(t.h==="24")return true;
+    if(t.h==="24"||t.h==="24시간")return true;
     var p=t.h.split('~'), d=new Date(), now=d.getHours()*60+d.getMinutes();
     return now>=mins(p[0]) && now<mins(p[1]);
   }
-  function hoursText(t){return t.h==="24"?"24시간":t.h;}
+  function hoursText(t){return (t.h==="24"||t.h==="24시간")?"24시간":t.h;}
   function esc(s){return encodeURIComponent(s);}
 
   function render(){
+    if(status!=='ok'){
+      layer.innerHTML='';routeEl.innerHTML='';list.innerHTML='';
+      sum.innerHTML=status==='loading'?'⏳ 화장실 목록 불러오는 중…':'😥 목록을 불러오지 못했어요';
+      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='인터넷 연결을 확인하고 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요. (연결이 안 되면 목록을 보여 줄 수 없어요)';list.appendChild(e);}
+      return;
+    }
     var rows=TOILETS.map(function(t){return {t:t,d:dist(t),o:isOpen(t)};})
       .sort(function(a,b){return (a.o===b.o?0:(a.o?-1:1))||a.d-b.d;});
     var inside=rows.filter(function(r){return r.d<=R;});
@@ -214,6 +215,7 @@
   }
 
   function pick(ev){
+    if(status!=='ok')return;
     var b=svg.getBoundingClientRect();
     var x=(ev.clientX-b.left)/b.width*SIZE, y=(ev.clientY-b.top)/b.height*SIZE;
     var hit=null, best=20;
@@ -229,7 +231,20 @@
   }
   svg.addEventListener('click',pick);
   document.getElementById('reset').addEventListener('click',function(){me={x:0,y:0};sel=null;render();});
-  render();
+  function load(){
+    status='loading';render();
+    fetch(SB_URL+'/rest/v1/toilets?select=name,address,kind,hours,amenities,est_dx_m,est_dy_m&order=id',{headers:{apikey:SB_KEY}})
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
+      .then(function(rows){
+        TOILETS=rows.filter(function(r){return r.est_dx_m!=null&&r.est_dy_m!=null;}).map(function(r){
+          return {name:r.name,type:r.kind,dx:r.est_dx_m,dy:r.est_dy_m,addr:r.address,h:r.hours,amen:(r.amenities||[]).join(' · ')||'정보 없음'};
+        });
+        status=TOILETS.length?'ok':'error';render();
+      })
+      .catch(function(){status='error';render();});
+  }
+  sum.addEventListener('click',function(){ if(status==='error')load(); });
+  load();
 })();
 </script>
 </body>
