@@ -84,8 +84,8 @@
 <body>
 <div class="wrap">
   <h1><span class="badge">💩</span><span>500m <em>화장실</em> 찾기</span></h1>
-  <p class="lead">🧍 지도를 눌러 내 위치를 정하면, 반경 500m 안 화장실이 가까운 순서로 나와요. 시작 위치는 <b>연산역</b>입니다.</p>
-  <div class="notice"><span>⚠️</span><span><b>처음 위치(연산역)는 가상</b>이에요. 아래 <b>📍 버튼</b>을 누르면 내 실제 위치가 실시간으로 따라와요. 지도 위 화장실은 <b>실제 좌표</b>로 찍혀요. 화장실 위치·이름·개방시간은 <b>OpenStreetMap(Overpass) 실시간 데이터</b>라 비어 있거나 실제와 다를 수 있으니 방문 전에 확인하세요.</span></div>
+  <p class="lead">📍 <b>내 실제 위치(실시간)</b>를 기준으로, 반경 500m 안 화장실을 가까운 순서로 보여줘요. 위치 허용 창이 뜨면 "허용"을 눌러 주세요.</p>
+  <div class="notice"><span>⚠️</span><span>위치를 허용하지 않으면 <b>연산역(가상 위치)</b>에서 시작해요. 이때는 지도를 눌러 위치를 옮겨 볼 수 있어요. 화장실 위치·이름·개방시간은 <b>OpenStreetMap(Overpass) 실시간 데이터</b>라 비어 있거나 실제와 다를 수 있으니 방문 전에 확인하세요.</span></div>
 
   <div class="mapbox">
     <div id="kmap"></div>
@@ -111,7 +111,6 @@
   <div id="list"></div>
   <button class="locbtn" id="loc">📍 내 위치 실시간으로 보기</button>
   <div class="locmsg" id="locmsg"></div>
-  <button class="reset" id="reset" style="margin-top:6px">🧍 연산역으로 되돌리기</button>
   <p class="rn" id="credit">지도 © Kakao · 화장실 데이터 © OpenStreetMap contributors (Overpass API)</p>
 </div>
 
@@ -400,7 +399,7 @@
     var q='[out:json][timeout:20];(node["amenity"="toilets"]('+bb+');way["amenity"="toilets"]('+bb+'););out center tags;';
     overpassAny(q).then(function(data){
       TOILETS=(data.elements||[]).map(toToilet).filter(Boolean);
-      fetchC=c;status='ok';srcNote='';fetching=false;render(false);
+      fetchC=c;status='ok';srcNote='';fetching=false;render(false);checkRefetch();
     }).catch(function(e){
       lastErr=String(e||'');
       if(TOILETS.length){fetching=false;render(false);return;}
@@ -408,8 +407,10 @@
         .catch(function(e2){lastErr+=' / 저장 목록: '+((e2&&e2.message)||'실패');fetching=false;status='error';render(false);});
     });
   }
+  function farFromFetch(){if(!fetchC)return true;var o=off(fetchC,me);return Math.sqrt(o.dx*o.dx+o.dy*o.dy)>REFETCH_M;}
+  function checkRefetch(){if(!fetching&&farFromFetch())load();}
   function afterMove(recenter){
-    if(!fetchC||(function(){var o=off(fetchC,me);return Math.sqrt(o.dx*o.dx+o.dy*o.dy)>REFETCH_M;})())load();
+    if(farFromFetch())load();
     render(recenter);
   }
 
@@ -423,26 +424,25 @@
   function startTrack(){
     if(!navigator.geolocation){setMsg('이 브라우저는 위치 기능을 지원하지 않아요.');return;}
     tracking=true;locBtn.classList.add('on');locBtn.textContent='📍 실시간 내 위치 끄기';setMsg('위치 찾는 중… (권한 허용 창이 뜨면 "허용"을 눌러 주세요)');
-    var first=true;
+    var first=true, got=false;
     watchId=navigator.geolocation.watchPosition(function(p){
       me={lat:p.coords.latitude,lon:p.coords.longitude};sel=sel;
       setMsg('📡 실시간 내 위치 · 정확도 약 '+Math.round(p.coords.accuracy)+'m');
-      if(first){firstFit=true;first=false;}
+      got=true;if(first){firstFit=true;first=false;}
       afterMove(true);
     },function(err){
-      stopTrack(err&&err.code===1?'위치 권한이 꺼져 있어요. 주소창의 위치 설정에서 허용해 주세요. (https 주소에서만 동작해요)':'위치를 가져오지 못했어요. 잠시 뒤 다시 눌러 주세요.');
+      stopTrack(err&&err.code===1?'위치 권한이 꺼져 있어요. 주소창의 위치 설정에서 허용해 주세요. (https 주소에서만 동작해요) 지금은 연산역(가상)에서 시작해요.':'위치를 가져오지 못했어요. 지금은 연산역(가상)에서 시작해요. 위 버튼으로 다시 시도할 수 있어요.');
+      if(!got){me={lat:START.lat,lon:START.lon};sel=null;firstFit=true;afterMove(true);}
     },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }
   locBtn.addEventListener('click',function(){if(tracking)stopTrack('실시간 위치를 껐어요.');else startTrack();});
-  document.getElementById('reset').addEventListener('click',function(){
-    stopTrack('');me={lat:START.lat,lon:START.lon};sel=null;firstFit=true;afterMove(true);
-  });
   sum.addEventListener('click',function(){if(status==='error')load();});
   srcEl.addEventListener('click',function(){if(srcNote){TOILETS=[];fetching=false;load();}});
 
   render(false);
-  load();
   initKakao();
+  if(navigator.geolocation){status='loading';startTrack();}   // 처음부터 내 실제 위치로 시작
+  else{setMsg('이 브라우저는 위치 기능이 없어 연산역(가상)에서 시작해요.');load();}
 })();
 </script>
 </body>
