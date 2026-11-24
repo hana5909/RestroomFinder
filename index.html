@@ -73,7 +73,7 @@
 <div class="wrap">
   <h1><span class="badge">💩</span><span>500m <em>화장실</em> 찾기</span></h1>
   <p class="lead">🧍 지도를 눌러 내 위치를 정하면, 반경 500m 안 화장실이 가까운 순서로 나와요. 시작 위치는 <b>연산역</b>입니다.</p>
-  <div class="notice"><span>⚠️</span><span><b>시작 위치(연산역)는 가상</b>이고, 지도 위 화장실 위치는 <b>주소 번호로 추정한 대략값</b>입니다. 길찾기 버튼은 <b>실제 주소</b>로 연결돼요. 이름·주소·개방시간·편의시설은 공공데이터포털에 등록된 공중화장실 데이터 기준이라 방문 전에 확인하세요.</span></div>
+  <div class="notice"><span>⚠️</span><span><b>시작 위치(연산역)는 가상</b>이고, 지도 위 화장실은 <b>실제 좌표</b>로 찍혀요. 화장실 위치·이름·개방시간은 <b>OpenStreetMap(Overpass) 실시간 데이터</b>라 비어 있거나 실제와 다를 수 있으니 방문 전에 확인하세요.</span></div>
 
   <div class="mapbox">
     <svg id="map" viewBox="0 0 360 360" role="img" aria-label="내 위치와 주변 화장실 지도">
@@ -96,18 +96,18 @@
   <div class="summary" id="summary"></div>
   <div id="list"></div>
   <button class="reset" id="reset">🧍 연산역으로 되돌리기</button>
+  <p class="rn" id="credit">데이터 © OpenStreetMap contributors · Overpass API</p>
 </div>
 
 <script>
 (function(){
   var SIZE=360, MPP=1400/SIZE, R=500, WALK=70;
   var PINK='#ff2bd6', LIME='#b6ff3b', CYAN='#3be8ff', GRID='#18275a', DIM='#5b6fa8';
-  var ICON={"지하철역":"🚇","건물":"🏢","마트":"🛒","시장":"🛍️"};
+  var ICON={"지하철역":"🚇","공원":"🌳","마트":"🛒","시장":"🛍️","공중화장실":"💩"};
   var DIRS=['북','북동','동','남동','남','남서','서','북서'];
-  // Supabase (읽기 전용 공개 테이블 public.toilets, publishable 키만 사용)
-  var SB_URL='https://zvndygyxadtddiijzjap.supabase.co';
-  var SB_KEY='sb_publishable_VF3_0zqAseSh68vx8XOBpg_sHTvtg_d';
-  // 연산역(가상 시작점)을 (0,0)으로 한 대략 위치(m)는 DB의 est_dx_m / est_dy_m 칸에서 읽음.
+  // 가상 시작점: 연산역(부산 연제구) 근처. 이 좌표를 (0,0)으로 삼고 m 단위로 계산해요.
+  var LAT0=35.1860, LON0=129.0813, FETCH_R=1500;
+  var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
   var TOILETS=[], status='loading';
   var me={x:0,y:0}, sel=null;
   var svg=document.getElementById('map'), layer=document.getElementById('layer');
@@ -118,24 +118,69 @@
   function px(m){return SIZE/2+m/MPP;}
   function py(m){return SIZE/2-m/MPP;}
   function dist(t){var a=t.dx-me.x,b=t.dy-me.y;return Math.sqrt(a*a+b*b);}
-  function mins(s){var p=s.split(':');return (+p[0])*60+(+p[1]);}
-  function isOpen(t){
-    if(t.h==="24"||t.h==="24시간")return true;
-    var p=t.h.split('~'), d=new Date(), now=d.getHours()*60+d.getMinutes();
-    return now>=mins(p[0]) && now<mins(p[1]);
+  // <parse>
+  function pad(n){return (n<10?'0':'')+n;}
+  function parseHours(oh){
+    if(!oh)return null;
+    var t=String(oh).trim();
+    if(/^24\/7$/i.test(t))return {all:true,text:'24시간'};
+    var m=t.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+    if(!m)return null;
+    var s0=(+m[1])*60+(+m[2]), e0=(+m[3])*60+(+m[4]);
+    if(e0<=s0)e0+=1440;
+    return {s:s0,e:e0,text:pad(+m[1])+':'+m[2]+'~'+pad(+m[3])+':'+m[4]};
   }
-  function hoursText(t){return (t.h==="24"||t.h==="24시간")?"24시간":t.h;}
+  function openAt(hp,nowMin){
+    if(!hp)return null;
+    if(hp.all)return true;
+    return (nowMin>=hp.s&&nowMin<hp.e)||(nowMin+1440>=hp.s&&nowMin+1440<hp.e);
+  }
+  function guessType(tags){
+    var n=(tags['name']||'')+' '+(tags['name:ko']||'');
+    if(/역|지하철/.test(n)||tags['railway']==='station'||tags['subway']==='yes')return '지하철역';
+    if(/공원/.test(n))return '공원';
+    if(/시장/.test(n))return '시장';
+    if(/마트|백화점|쇼핑/.test(n))return '마트';
+    return '공중화장실';
+  }
+  function amenText(tags){
+    var a=[];
+    if(tags['wheelchair']==='yes')a.push('장애인 이용 가능');
+    if(tags['changing_table']==='yes')a.push('기저귀 교환대');
+    if(tags['unisex']==='yes')a.push('남녀공용');
+    if(tags['fee']==='yes')a.push('유료');else if(tags['fee']==='no')a.push('무료');
+    if(tags['access']==='customers')a.push('고객 전용');
+    return a.length?a.join(' · '):'편의시설 정보 없음';
+  }
+  function addrText(tags){
+    if(tags['addr:full'])return tags['addr:full'];
+    var p=[tags['addr:city'],tags['addr:street'],tags['addr:housenumber']].filter(Boolean).join(' ');
+    return p||'';
+  }
+  function toToilet(el){
+    var tags=el.tags||{};
+    if(tags['access']==='private'||tags['access']==='no')return null;
+    var lat=el.lat!=null?el.lat:(el.center&&el.center.lat), lon=el.lon!=null?el.lon:(el.center&&el.center.lon);
+    if(lat==null||lon==null)return null;
+    var dx=(lon-LON0)*111320*Math.cos(LAT0*Math.PI/180), dy=(lat-LAT0)*110574;
+    var nm=tags['name:ko']||tags['name']||'공중화장실';
+    return {name:nm,named:!!(tags['name:ko']||tags['name']),type:guessType(tags),dx:dx,dy:dy,lat:lat,lon:lon,
+      addr:addrText(tags),hp:parseHours(tags['opening_hours']),amen:amenText(tags)};
+  }
+  // </parse>
+  function isOpen(t){var d=new Date();return openAt(t.hp,d.getHours()*60+d.getMinutes());}
+  function hoursText(t){return t.hp?t.hp.text:'개방시간 미확인';}
   function esc(s){return encodeURIComponent(s);}
 
   function render(){
     if(status!=='ok'){
       layer.innerHTML='';routeEl.innerHTML='';list.innerHTML='';
       sum.innerHTML=status==='loading'?'⏳ 화장실 목록 불러오는 중…':'😥 목록을 불러오지 못했어요';
-      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='인터넷 연결을 확인하고 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요. (연결이 안 되면 목록을 보여 줄 수 없어요)';list.appendChild(e);}
+      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='무료 지도 서버(Overpass)가 바쁠 수 있어요. 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요. (연결이 안 되면 목록을 보여 줄 수 없어요)';list.appendChild(e);}
       return;
     }
     var rows=TOILETS.map(function(t){return {t:t,d:dist(t),o:isOpen(t)};})
-      .sort(function(a,b){return (a.o===b.o?0:(a.o?-1:1))||a.d-b.d;});
+      .sort(function(a,b){return ((a.o===false?1:0)-(b.o===false?1:0))||a.d-b.d;});
     var inside=rows.filter(function(r){return r.d<=R;});
     var shown=inside.length?inside:rows.slice(0,1);
     if(sel&&!shown.some(function(r){return r.t===sel;}))sel=null;
@@ -145,17 +190,17 @@
     var ddx=target.dx-me.x, ddy=target.dy-me.y, td=Math.sqrt(ddx*ddx+ddy*ddy);
     var brg=(Math.atan2(ddx,ddy)*180/Math.PI+360)%360;
     var dname=DIRS[Math.round(brg/45)%8];
-    var q=esc(target.addr+' '+target.name);
+    var gq=target.lat+','+target.lon, nq=esc(target.named?target.name:'공중화장실 '+target.lat.toFixed(5)+','+target.lon.toFixed(5));
     routeEl.innerHTML='<div class="rtop"><div class="arrow"><i style="transform:rotate('+(brg-90)+'deg)">➤</i></div><div><div class="rt"><b></b>쪽으로 약 <b></b></div><div class="rs"></div></div></div>'
       +'<div class="addr"></div>'
-      +'<div class="go"><a class="main" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+q+'&travelmode=walking">🚶 길찾기 (구글)</a>'
-      +'<a target="_blank" rel="noopener" href="https://map.kakao.com/link/search/'+q+'">카카오맵</a>'
-      +'<a target="_blank" rel="noopener" href="https://map.naver.com/p/search/'+q+'">네이버지도</a></div>'
-      +'<div class="rn">※ 길찾기 버튼을 누르면 지도 앱이 열리고, 출발지는 폰의 현재 위치로 잡혀요. 위 방향·거리는 지도 위 대략 위치 기준입니다.</div>';
+      +'<div class="go"><a class="main" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+gq+'&travelmode=walking">🚶 길찾기 (구글)</a>'
+      +'<a target="_blank" rel="noopener" href="https://map.kakao.com/link/to/'+esc(target.name)+','+gq+'">카카오맵</a>'
+      +'<a target="_blank" rel="noopener" href="https://map.naver.com/p/search/'+nq+'">네이버지도</a></div>'
+      +'<div class="rn">※ 길찾기 버튼을 누르면 지도 앱이 열리고, 출발지는 폰의 현재 위치로 잡혀요. 위 방향·거리는 화면의 내 위치(가상) 기준입니다.</div>';
     var bs=routeEl.querySelectorAll('.rt b');
     bs[0].textContent=dname; bs[1].textContent=(Math.round(td/10)*10)+'m';
     routeEl.querySelector('.rs').textContent='🚶 걸어서 약 '+Math.max(1,Math.round(td/WALK))+'분 · '+target.name;
-    routeEl.querySelector('.addr').textContent='📍 '+target.addr+' · '+hoursText(target)+' · '+target.amen;
+    routeEl.querySelector('.addr').textContent='📍 '+(target.addr||'주소 정보 없음')+' · '+hoursText(target)+' · '+target.amen;
 
     // 지도
     while(layer.firstChild)layer.removeChild(layer.firstChild);
@@ -172,7 +217,7 @@
       var idx=shown.indexOf(r), on=idx>=0, x=px(r.t.dx), y=py(r.t.dy);
       if(on){
         if(r.t===target)layer.appendChild(el('circle',{cx:x,cy:y,r:18,fill:'none',stroke:LIME,'stroke-width':2.5}));
-        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:r.o?PINK:'#6b4a78',filter:'url(#glow)'}));
+        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:r.o===false?'#6b4a78':PINK,filter:'url(#glow)'}));
         layer.appendChild(el('text',{x:x,y:y+4.5,'text-anchor':'middle','font-size':13,'font-weight':800,fill:'#fff'},String(idx+1)));
         if(idx===0){layer.appendChild(el('text',{x:x+16,y:y+5,'font-size':16,'class':'blink'},'🚨'));}
       }else{
@@ -200,13 +245,13 @@
     shown.forEach(function(r,i){
       var d=Math.round(r.d/10)*10, min=Math.max(1,Math.round(r.d/WALK));
       var it=document.createElement('div');
-      it.className='item'+(i===0?' first':'')+(r.t===target?' sel':'')+(r.o?'':' closed');
+      it.className='item'+(i===0?' first':'')+(r.t===target?' sel':'')+(r.o===false?' closed':'');
       it.addEventListener('click',function(){sel=r.t;render();window.scrollTo({top:0,behavior:'smooth'});});
       it.innerHTML='<div class="num">'+(i+1)+'</div>'+(i===0?'<span class="siren">🚨</span>':'')+'<div class="info"><div class="name"></div><div class="meta"></div></div><div class="dist"><div class="m">'+d+'m</div><div class="t">🚶 약 '+min+'분</div></div>';
       it.querySelector('.name').textContent=r.t.name;
       var meta=it.querySelector('.meta');
       meta.textContent=(ICON[r.t.type]||'💩')+' '+r.t.type+' · '+hoursText(r.t)+' ';
-      var st=document.createElement('span');st.className='tag '+(r.o?'open':'shut');st.textContent=r.o?'지금 열림':'지금 닫힘';meta.appendChild(st);
+      var st=document.createElement('span');st.className='tag '+(r.o===true?'open':(r.o===false?'shut':''));st.textContent=r.o===true?'지금 열림':(r.o===false?'지금 닫힘':'시간 미확인');meta.appendChild(st);
       if(i===0){var tg=document.createElement('span');tg.className='tag';tg.textContent='⭐ 가장 가까워요';meta.appendChild(tg);}
       var am=document.createElement('div');am.className='meta';am.textContent='🧰 '+r.t.amen;
       it.querySelector('.info').appendChild(am);
@@ -231,17 +276,22 @@
   }
   svg.addEventListener('click',pick);
   document.getElementById('reset').addEventListener('click',function(){me={x:0,y:0};sel=null;render();});
+  function overpass(i,query){
+    var url=ENDPOINTS[i];
+    if(!url)return Promise.reject(new Error('no endpoint'));
+    var ctl=('AbortController' in window)?new AbortController():null;
+    var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
+    return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(query),signal:ctl?ctl.signal:undefined})
+      .then(function(r){clearTimeout(timer);if(!r.ok)throw new Error(r.status);return r.json();})
+      .catch(function(){clearTimeout(timer);return overpass(i+1,query);});
+  }
   function load(){
     status='loading';render();
-    fetch(SB_URL+'/rest/v1/toilets?select=name,address,kind,hours,amenities,est_dx_m,est_dy_m&order=id',{headers:{apikey:SB_KEY}})
-      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
-      .then(function(rows){
-        TOILETS=rows.filter(function(r){return r.est_dx_m!=null&&r.est_dy_m!=null;}).map(function(r){
-          return {name:r.name,type:r.kind,dx:r.est_dx_m,dy:r.est_dy_m,addr:r.address,h:r.hours,amen:(r.amenities||[]).join(' · ')||'정보 없음'};
-        });
-        status=TOILETS.length?'ok':'error';render();
-      })
-      .catch(function(){status='error';render();});
+    var q='[out:json][timeout:25];(node["amenity"="toilets"](around:'+FETCH_R+','+LAT0+','+LON0+');way["amenity"="toilets"](around:'+FETCH_R+','+LAT0+','+LON0+'););out center tags;';
+    overpass(0,q).then(function(data){
+      TOILETS=(data.elements||[]).map(toToilet).filter(Boolean);
+      status=TOILETS.length?'ok':'error';render();
+    }).catch(function(){status='error';render();});
   }
   sum.addEventListener('click',function(){ if(status==='error')load(); });
   load();
