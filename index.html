@@ -125,7 +125,8 @@
   var DIRS=['북','북동','동','남동','남','남서','서','북서'];
   var START={lat:35.1860,lon:129.0813};   // 연산역(가상 시작점)
   var FETCH_R=1000, REFETCH_M=350;
-  var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+  var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.openstreetmap.ru/api/interpreter'];
+  var lastErr='';
 
   var me={lat:START.lat,lon:START.lon}, tracking=false, watchId=null, sel=null, firstFit=true;
   var TOILETS=[], status='loading', fetchC=null, fetching=false;
@@ -198,7 +199,7 @@
     if(status!=='ok'){
       list.innerHTML='';routeEl.innerHTML='';
       sum.innerHTML=status==='loading'?'⏳ 화장실 목록 불러오는 중…':'😥 목록을 불러오지 못했어요';
-      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='무료 지도 서버(Overpass)가 바쁠 수 있어요. 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요.';list.appendChild(e);}
+      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='무료 지도 서버(Overpass)가 바쁘거나 막혔을 수 있어요. 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요.'+(lastErr?' [원인: '+lastErr+']':'');list.appendChild(e);}
       drawMap(rows,shown,null,recenter);
       return;
     }
@@ -348,14 +349,24 @@
   });
 
   /* ---------- 화장실 데이터 (Overpass) ---------- */
-  function overpass(i,query){
-    var url=ENDPOINTS[i];
-    if(!url)return Promise.reject(new Error('no endpoint'));
-    var ctl=('AbortController' in window)?new AbortController():null;
-    var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
-    return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(query),signal:ctl?ctl.signal:undefined})
-      .then(function(r){clearTimeout(timer);if(!r.ok)throw new Error(r.status);return r.json();})
-      .catch(function(){clearTimeout(timer);return overpass(i+1,query);});
+  function hostOf(u){return u.replace(/^https?:\/\//,'').split('/')[0];}
+  // 여러 서버에 동시에 물어보고, 가장 먼저 성공한 응답을 씁니다.
+  function overpassAny(query){
+    return new Promise(function(resolve,reject){
+      var left=ENDPOINTS.length, errs=[], done=false;
+      ENDPOINTS.forEach(function(url){
+        var ctl=('AbortController' in window)?new AbortController():null;
+        var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
+        fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(query),signal:ctl?ctl.signal:undefined})
+          .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+          .then(function(j){clearTimeout(timer);if(!done){done=true;resolve(j);}})
+          .catch(function(e){
+            clearTimeout(timer);
+            errs.push(hostOf(url)+': '+((e&&e.name==='AbortError')?'시간 초과':(e&&e.message)||'연결 실패'));
+            if(--left===0&&!done){done=true;reject(errs.join(' / '));}
+          });
+      });
+    });
   }
   function load(){
     if(fetching)return;
@@ -363,11 +374,11 @@
     if(!TOILETS.length){status='loading';render(false);}
     var c={lat:me.lat,lon:me.lon};
     var q='[out:json][timeout:25];(node["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+');way["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+'););out center tags;';
-    overpass(0,q).then(function(data){
+    overpassAny(q).then(function(data){
       TOILETS=(data.elements||[]).map(toToilet).filter(Boolean);
       fetchC=c;status='ok';fetching=false;render(false);
-    }).catch(function(){
-      fetching=false;if(!TOILETS.length)status='error';render(false);
+    }).catch(function(e){
+      lastErr=String(e||'');fetching=false;if(!TOILETS.length)status='error';render(false);
     });
   }
   function afterMove(recenter){
