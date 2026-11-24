@@ -67,15 +67,28 @@
   .flow{animation:flow .9s linear infinite}
   .reset{margin-top:12px;width:100%;padding:13px;border-radius:14px;border:1.5px solid var(--pink);background:transparent;color:var(--pink);font-size:15px;font-weight:700;cursor:pointer;text-shadow:0 0 8px rgba(255,43,214,.5)}
   .reset:active{background:rgba(255,43,214,.12)}
+  #kmap{display:none;width:100%;height:360px;border-radius:12px;overflow:hidden;touch-action:manipulation}
+  .kn{position:relative;width:30px;height:30px;border-radius:50%;background:var(--pink);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px;border:2px solid #fff;box-shadow:0 0 12px rgba(255,43,214,.9);cursor:pointer}
+  .kn.shut{background:#6b4a78;box-shadow:none}
+  .kn.tgt{outline:3px solid var(--lime);outline-offset:2px}
+  .kn .ks{position:absolute;left:30px;top:-8px;font-size:18px;animation:blink .8s steps(1) infinite}
+  .kme{position:relative;width:28px;height:28px;pointer-events:none}
+  .kme .ring{position:absolute;inset:-6px;border:2.5px solid var(--lime);border-radius:50%;animation:kpulse 1.6s ease-out infinite}
+  .kme .lab{position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-weight:800;font-size:13px;color:var(--lime);text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;white-space:nowrap}
+  @keyframes kpulse{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2);opacity:0}}
+  .locbtn{margin-top:12px;width:100%;padding:13px;border-radius:14px;border:1.5px solid var(--lime);background:rgba(182,255,59,.08);color:var(--lime);font-size:15px;font-weight:800;cursor:pointer}
+  .locbtn.on{background:var(--lime);color:#071300}
+  .locmsg{font-size:12.5px;color:var(--sub);margin-top:8px;text-align:center;min-height:1.2em}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1><span class="badge">💩</span><span>500m <em>화장실</em> 찾기</span></h1>
   <p class="lead">🧍 지도를 눌러 내 위치를 정하면, 반경 500m 안 화장실이 가까운 순서로 나와요. 시작 위치는 <b>연산역</b>입니다.</p>
-  <div class="notice"><span>⚠️</span><span><b>시작 위치(연산역)는 가상</b>이고, 지도 위 화장실은 <b>실제 좌표</b>로 찍혀요. 화장실 위치·이름·개방시간은 <b>OpenStreetMap(Overpass) 실시간 데이터</b>라 비어 있거나 실제와 다를 수 있으니 방문 전에 확인하세요.</span></div>
+  <div class="notice"><span>⚠️</span><span><b>처음 위치(연산역)는 가상</b>이에요. 아래 <b>📍 버튼</b>을 누르면 내 실제 위치가 실시간으로 따라와요. 지도 위 화장실은 <b>실제 좌표</b>로 찍혀요. 화장실 위치·이름·개방시간은 <b>OpenStreetMap(Overpass) 실시간 데이터</b>라 비어 있거나 실제와 다를 수 있으니 방문 전에 확인하세요.</span></div>
 
   <div class="mapbox">
+    <div id="kmap"></div>
     <svg id="map" viewBox="0 0 360 360" role="img" aria-label="내 위치와 주변 화장실 지도">
       <defs>
         <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
@@ -95,29 +108,33 @@
   <div class="route" id="route"></div>
   <div class="summary" id="summary"></div>
   <div id="list"></div>
-  <button class="reset" id="reset">🧍 연산역으로 되돌리기</button>
-  <p class="rn" id="credit">데이터 © OpenStreetMap contributors · Overpass API</p>
+  <button class="locbtn" id="loc">📍 내 위치 실시간으로 보기</button>
+  <div class="locmsg" id="locmsg"></div>
+  <button class="reset" id="reset" style="margin-top:6px">🧍 연산역으로 되돌리기</button>
+  <p class="rn" id="credit">지도 © Kakao · 화장실 데이터 © OpenStreetMap contributors (Overpass API)</p>
 </div>
 
 <script>
 (function(){
+  // ▼▼ 카카오 디벨로퍼스에서 받은 "JavaScript 키"를 여기에 붙여 넣으세요 (비워 두면 간이 지도로 보여요)
+  var KAKAO_JS_KEY='';
+  // ▲▲
   var SIZE=360, MPP=1400/SIZE, R=500, WALK=70;
   var PINK='#ff2bd6', LIME='#b6ff3b', CYAN='#3be8ff', GRID='#18275a', DIM='#5b6fa8';
   var ICON={"지하철역":"🚇","공원":"🌳","마트":"🛒","시장":"🛍️","공중화장실":"💩"};
   var DIRS=['북','북동','동','남동','남','남서','서','북서'];
-  // 가상 시작점: 연산역(부산 연제구) 근처. 이 좌표를 (0,0)으로 삼고 m 단위로 계산해요.
-  var LAT0=35.1860, LON0=129.0813, FETCH_R=1500;
+  var START={lat:35.1860,lon:129.0813};   // 연산역(가상 시작점)
+  var FETCH_R=1000, REFETCH_M=350;
   var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-  var TOILETS=[], status='loading';
-  var me={x:0,y:0}, sel=null;
+
+  var me={lat:START.lat,lon:START.lon}, tracking=false, watchId=null, sel=null, firstFit=true;
+  var TOILETS=[], status='loading', fetchC=null, fetching=false;
+  var kmap=null, kReady=false, kObjs=[];
   var svg=document.getElementById('map'), layer=document.getElementById('layer');
   var list=document.getElementById('list'), sum=document.getElementById('summary'), routeEl=document.getElementById('route');
+  var kbox=document.getElementById('kmap'), locBtn=document.getElementById('loc'), locMsg=document.getElementById('locmsg');
   var NS='http://www.w3.org/2000/svg';
 
-  function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e;}
-  function px(m){return SIZE/2+m/MPP;}
-  function py(m){return SIZE/2-m/MPP;}
-  function dist(t){var a=t.dx-me.x,b=t.dy-me.y;return Math.sqrt(a*a+b*b);}
   // <parse>
   function pad(n){return (n<10?'0':'')+n;}
   function parseHours(oh){
@@ -154,41 +171,46 @@
   }
   function addrText(tags){
     if(tags['addr:full'])return tags['addr:full'];
-    var p=[tags['addr:city'],tags['addr:street'],tags['addr:housenumber']].filter(Boolean).join(' ');
-    return p||'';
+    return [tags['addr:city'],tags['addr:street'],tags['addr:housenumber']].filter(Boolean).join(' ');
   }
   function toToilet(el){
     var tags=el.tags||{};
     if(tags['access']==='private'||tags['access']==='no')return null;
     var lat=el.lat!=null?el.lat:(el.center&&el.center.lat), lon=el.lon!=null?el.lon:(el.center&&el.center.lon);
     if(lat==null||lon==null)return null;
-    var dx=(lon-LON0)*111320*Math.cos(LAT0*Math.PI/180), dy=(lat-LAT0)*110574;
     var nm=tags['name:ko']||tags['name']||'공중화장실';
-    return {name:nm,named:!!(tags['name:ko']||tags['name']),type:guessType(tags),dx:dx,dy:dy,lat:lat,lon:lon,
+    return {name:nm,named:!!(tags['name:ko']||tags['name']),type:guessType(tags),lat:lat,lon:lon,
       addr:addrText(tags),hp:parseHours(tags['opening_hours']),amen:amenText(tags)};
   }
+  function off(a,b){return {dx:(b.lon-a.lon)*111320*Math.cos(a.lat*Math.PI/180),dy:(b.lat-a.lat)*110574};}
   // </parse>
+  function dist(t){var o=off(me,t);return Math.sqrt(o.dx*o.dx+o.dy*o.dy);}
   function isOpen(t){var d=new Date();return openAt(t.hp,d.getHours()*60+d.getMinutes());}
   function hoursText(t){return t.hp?t.hp.text:'개방시간 미확인';}
   function esc(s){return encodeURIComponent(s);}
+  function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e;}
+  function px(m){return SIZE/2+m/MPP;}
+  function py(m){return SIZE/2-m/MPP;}
 
-  function render(){
+  /* ---------- 화면 ---------- */
+  function render(recenter){
+    var rows=[],inside=[],shown=[],target=null;
     if(status!=='ok'){
-      layer.innerHTML='';routeEl.innerHTML='';list.innerHTML='';
+      list.innerHTML='';routeEl.innerHTML='';
       sum.innerHTML=status==='loading'?'⏳ 화장실 목록 불러오는 중…':'😥 목록을 불러오지 못했어요';
-      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='무료 지도 서버(Overpass)가 바쁠 수 있어요. 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요. (연결이 안 되면 목록을 보여 줄 수 없어요)';list.appendChild(e);}
+      if(status==='error'){var e=document.createElement('div');e.className='empty';e.textContent='무료 지도 서버(Overpass)가 바쁠 수 있어요. 위의 "목록을 불러오지 못했어요" 글자를 누르면 다시 불러와요.';list.appendChild(e);}
+      drawMap(rows,shown,null,recenter);
       return;
     }
-    var rows=TOILETS.map(function(t){return {t:t,d:dist(t),o:isOpen(t)};})
+    rows=TOILETS.map(function(t){return {t:t,d:dist(t),o:isOpen(t)};})
       .sort(function(a,b){return ((a.o===false?1:0)-(b.o===false?1:0))||a.d-b.d;});
-    var inside=rows.filter(function(r){return r.d<=R;});
-    var shown=inside.length?inside:rows.slice(0,1);
+    inside=rows.filter(function(r){return r.d<=R;});
+    shown=inside.length?inside:rows.slice(0,1);
     if(sel&&!shown.some(function(r){return r.t===sel;}))sel=null;
-    var target=sel||shown[0].t;
+    target=sel||shown[0].t;
 
-    // 가는 길 카드
-    var ddx=target.dx-me.x, ddy=target.dy-me.y, td=Math.sqrt(ddx*ddx+ddy*ddy);
-    var brg=(Math.atan2(ddx,ddy)*180/Math.PI+360)%360;
+    var o=off(me,target), td=Math.sqrt(o.dx*o.dx+o.dy*o.dy);
+    var brg=(Math.atan2(o.dx,o.dy)*180/Math.PI+360)%360;
     var dname=DIRS[Math.round(brg/45)%8];
     var gq=target.lat+','+target.lon, nq=esc(target.named?target.name:'공중화장실 '+target.lat.toFixed(5)+','+target.lon.toFixed(5));
     routeEl.innerHTML='<div class="rtop"><div class="arrow"><i style="transform:rotate('+(brg-90)+'deg)">➤</i></div><div><div class="rt"><b></b>쪽으로 약 <b></b></div><div class="rs"></div></div></div>'
@@ -196,57 +218,27 @@
       +'<div class="go"><a class="main" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+gq+'&travelmode=walking">🚶 길찾기 (구글)</a>'
       +'<a target="_blank" rel="noopener" href="https://map.kakao.com/link/to/'+esc(target.name)+','+gq+'">카카오맵</a>'
       +'<a target="_blank" rel="noopener" href="https://map.naver.com/p/search/'+nq+'">네이버지도</a></div>'
-      +'<div class="rn">※ 길찾기 버튼을 누르면 지도 앱이 열리고, 출발지는 폰의 현재 위치로 잡혀요. 위 방향·거리는 화면의 내 위치(가상) 기준입니다.</div>';
+      +'<div class="rn">※ 길찾기 버튼을 누르면 지도 앱이 열리고, 출발지는 폰의 현재 위치로 잡혀요.</div>';
     var bs=routeEl.querySelectorAll('.rt b');
     bs[0].textContent=dname; bs[1].textContent=(Math.round(td/10)*10)+'m';
     routeEl.querySelector('.rs').textContent='🚶 걸어서 약 '+Math.max(1,Math.round(td/WALK))+'분 · '+target.name;
     routeEl.querySelector('.addr').textContent='📍 '+(target.addr||'주소 정보 없음')+' · '+hoursText(target)+' · '+target.amen;
 
-    // 지도
-    while(layer.firstChild)layer.removeChild(layer.firstChild);
-    for(var g=1;g<6;g++){
-      layer.appendChild(el('line',{x1:g*60,y1:0,x2:g*60,y2:SIZE,stroke:GRID,'stroke-width':.8}));
-      layer.appendChild(el('line',{x1:0,y1:g*60,x2:SIZE,y2:g*60,stroke:GRID,'stroke-width':.8}));
-    }
-    var cx=px(me.x), cy=py(me.y);
-    layer.appendChild(el('circle',{cx:cx,cy:cy,r:R/MPP,fill:CYAN,'fill-opacity':.06,stroke:CYAN,'stroke-width':1.6,'stroke-dasharray':'6 5','stroke-opacity':.8}));
-    layer.appendChild(el('line',{x1:cx,y1:cy,x2:px(target.dx),y2:py(target.dy),stroke:LIME,'stroke-width':2.5,'stroke-dasharray':'7 6','stroke-linecap':'round','class':'flow'}));
-    layer.appendChild(el('text',{x:px(0),y:py(0)+30,'text-anchor':'middle','font-size':11,fill:DIM},'연산역'));
+    drawMap(rows,shown,target,recenter);
 
-    rows.forEach(function(r){
-      var idx=shown.indexOf(r), on=idx>=0, x=px(r.t.dx), y=py(r.t.dy);
-      if(on){
-        if(r.t===target)layer.appendChild(el('circle',{cx:x,cy:y,r:18,fill:'none',stroke:LIME,'stroke-width':2.5}));
-        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:r.o===false?'#6b4a78':PINK,filter:'url(#glow)'}));
-        layer.appendChild(el('text',{x:x,y:y+4.5,'text-anchor':'middle','font-size':13,'font-weight':800,fill:'#fff'},String(idx+1)));
-        if(idx===0){layer.appendChild(el('text',{x:x+16,y:y+5,'font-size':16,'class':'blink'},'🚨'));}
-      }else{
-        layer.appendChild(el('circle',{cx:x,cy:y,r:5,fill:DIM}));
-      }
-    });
-
-    layer.appendChild(el('circle',{cx:cx,cy:cy,r:9,fill:'none',stroke:LIME,'stroke-width':2.5,'class':'pulse'}));
-    var person=el('g',{filter:'url(#glow)',fill:LIME,stroke:'#fff','stroke-width':1.8,'stroke-linejoin':'round'});
-    person.appendChild(el('circle',{cx:cx,cy:cy-9,r:5.5}));
-    person.appendChild(el('path',{d:'M'+(cx-8.5)+','+(cy+12)+' Q'+(cx-8.5)+','+(cy-1)+' '+cx+','+(cy-1)+' Q'+(cx+8.5)+','+(cy-1)+' '+(cx+8.5)+','+(cy+12)+' Z'}));
-    layer.appendChild(person);
-    layer.appendChild(el('text',{x:cx,y:cy-24,'text-anchor':'middle','font-size':13,'font-weight':800,fill:LIME,stroke:'#05060b','stroke-width':3,'paint-order':'stroke'},'나'));
-
-    // 목록
     list.innerHTML='';
-    if(inside.length){
-      sum.innerHTML='💩 500m 안에 <b>'+inside.length+'곳</b>';
-    }else{
+    if(inside.length){sum.innerHTML='💩 500m 안에 <b>'+inside.length+'곳</b>';}
+    else{
       sum.innerHTML='😥 500m 안엔 없어요';
-      var e=document.createElement('div');e.className='empty';
-      e.textContent='반경 500m 안에 등록된 화장실이 없습니다. 가장 가까운 한 곳을 보여드려요.';
-      list.appendChild(e);
+      var e2=document.createElement('div');e2.className='empty';
+      e2.textContent='반경 500m 안에 등록된 화장실이 없습니다. 가장 가까운 한 곳을 보여드려요.';
+      list.appendChild(e2);
     }
     shown.forEach(function(r,i){
       var d=Math.round(r.d/10)*10, min=Math.max(1,Math.round(r.d/WALK));
       var it=document.createElement('div');
       it.className='item'+(i===0?' first':'')+(r.t===target?' sel':'')+(r.o===false?' closed':'');
-      it.addEventListener('click',function(){sel=r.t;render();window.scrollTo({top:0,behavior:'smooth'});});
+      it.addEventListener('click',function(){sel=r.t;render(false);window.scrollTo({top:0,behavior:'smooth'});});
       it.innerHTML='<div class="num">'+(i+1)+'</div>'+(i===0?'<span class="siren">🚨</span>':'')+'<div class="info"><div class="name"></div><div class="meta"></div></div><div class="dist"><div class="m">'+d+'m</div><div class="t">🚶 약 '+min+'분</div></div>';
       it.querySelector('.name').textContent=r.t.name;
       var meta=it.querySelector('.meta');
@@ -259,23 +251,103 @@
     });
   }
 
-  function pick(ev){
-    if(status!=='ok')return;
+  function drawMap(rows,shown,target,recenter){ if(kReady)drawKakao(rows,shown,target,recenter); else drawSvg(rows,shown,target); }
+
+  /* ---------- 카카오맵 ---------- */
+  function clearK(){kObjs.forEach(function(o){o.setMap(null);});kObjs=[];}
+  function kov(pos,node,z){
+    var o=new kakao.maps.CustomOverlay({position:pos,content:node,xAnchor:.5,yAnchor:.5,zIndex:z||1,clickable:true});
+    o.setMap(kmap);kObjs.push(o);return o;
+  }
+  function drawKakao(rows,shown,target,recenter){
+    clearK();
+    var c=new kakao.maps.LatLng(me.lat,me.lon);
+    var circle=new kakao.maps.Circle({center:c,radius:R,strokeWeight:2,strokeColor:'#0aa8c4',strokeOpacity:.9,strokeStyle:'dashed',fillColor:CYAN,fillOpacity:.12});
+    circle.setMap(kmap);kObjs.push(circle);
+    if(target){
+      var pl=new kakao.maps.Polyline({path:[c,new kakao.maps.LatLng(target.lat,target.lon)],strokeWeight:4,strokeColor:'#6fb800',strokeOpacity:.95,strokeStyle:'shortdash'});
+      pl.setMap(kmap);kObjs.push(pl);
+    }
+    rows.forEach(function(r){
+      var idx=shown.indexOf(r); if(idx<0)return;
+      var n=document.createElement('div');
+      n.className='kn'+(r.o===false?' shut':'')+(r.t===target?' tgt':'');
+      n.textContent=String(idx+1);
+      if(idx===0){var s=document.createElement('span');s.className='ks';s.textContent='🚨';n.appendChild(s);}
+      n.addEventListener('click',function(ev){ev.stopPropagation();sel=r.t;render(false);});
+      kov(new kakao.maps.LatLng(r.t.lat,r.t.lon),n,2);
+    });
+    var m=document.createElement('div');m.className='kme';
+    m.innerHTML='<div class="ring"></div><svg viewBox="0 0 28 28" width="28" height="28" fill="#b6ff3b" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"><circle cx="14" cy="8" r="5.5"/><path d="M5.5 25 Q5.5 13 14 13 Q22.5 13 22.5 25 Z"/></svg><div class="lab">나</div>';
+    kov(c,m,5);
+    if(firstFit){kmap.setBounds(circle.getBounds());firstFit=false;}
+    else if(recenter){kmap.setCenter(c);}
+  }
+  function initKakao(){
+    function fb(msg){var n=document.getElementById('credit');if(n)n.textContent=msg+' · 화장실 데이터 © OpenStreetMap contributors';}
+    if(!KAKAO_JS_KEY){fb('카카오맵 키가 아직 없어 간이 지도로 보여요');return;}
+    var sc=document.createElement('script');
+    sc.src='https://dapi.kakao.com/v2/maps/sdk.js?appkey='+encodeURIComponent(KAKAO_JS_KEY)+'&autoload=false';
+    sc.onload=function(){
+      try{
+        kakao.maps.load(function(){
+          kbox.style.display='block';svg.style.display='none';
+          kmap=new kakao.maps.Map(kbox,{center:new kakao.maps.LatLng(me.lat,me.lon),level:4});
+          kakao.maps.event.addListener(kmap,'click',function(e){
+            var ll=e.latLng;stopTrack('');me={lat:ll.getLat(),lon:ll.getLng()};sel=null;afterMove(false);
+          });
+          kReady=true;firstFit=true;render(true);
+        });
+      }catch(err){fb('카카오맵을 시작하지 못해 간이 지도로 보여요');}
+    };
+    sc.onerror=function(){fb('카카오맵을 불러오지 못해 간이 지도로 보여요 (키·도메인 등록을 확인하세요)');};
+    document.head.appendChild(sc);
+  }
+
+  /* ---------- 간이 지도(SVG, 카카오 키가 없을 때) ---------- */
+  function drawSvg(rows,shown,target){
+    while(layer.firstChild)layer.removeChild(layer.firstChild);
+    for(var g=1;g<6;g++){
+      layer.appendChild(el('line',{x1:g*60,y1:0,x2:g*60,y2:SIZE,stroke:GRID,'stroke-width':.8}));
+      layer.appendChild(el('line',{x1:0,y1:g*60,x2:SIZE,y2:g*60,stroke:GRID,'stroke-width':.8}));
+    }
+    var cx=SIZE/2, cy=SIZE/2;
+    layer.appendChild(el('circle',{cx:cx,cy:cy,r:R/MPP,fill:CYAN,'fill-opacity':.06,stroke:CYAN,'stroke-width':1.6,'stroke-dasharray':'6 5','stroke-opacity':.8}));
+    if(target){var to=off(me,target);layer.appendChild(el('line',{x1:cx,y1:cy,x2:px(to.dx),y2:py(to.dy),stroke:LIME,'stroke-width':2.5,'stroke-dasharray':'7 6','stroke-linecap':'round','class':'flow'}));}
+    rows.forEach(function(r){
+      var o=off(me,r.t), x=px(o.dx), y=py(o.dy), idx=shown.indexOf(r);
+      if(idx>=0){
+        if(r.t===target)layer.appendChild(el('circle',{cx:x,cy:y,r:18,fill:'none',stroke:LIME,'stroke-width':2.5}));
+        layer.appendChild(el('circle',{cx:x,cy:y,r:12,fill:r.o===false?'#6b4a78':PINK,filter:'url(#glow)'}));
+        layer.appendChild(el('text',{x:x,y:y+4.5,'text-anchor':'middle','font-size':13,'font-weight':800,fill:'#fff'},String(idx+1)));
+        if(idx===0)layer.appendChild(el('text',{x:x+16,y:y+5,'font-size':16,'class':'blink'},'🚨'));
+      }else{layer.appendChild(el('circle',{cx:x,cy:y,r:5,fill:DIM}));}
+    });
+    layer.appendChild(el('circle',{cx:cx,cy:cy,r:9,fill:'none',stroke:LIME,'stroke-width':2.5,'class':'pulse'}));
+    var person=el('g',{filter:'url(#glow)',fill:LIME,stroke:'#fff','stroke-width':1.8,'stroke-linejoin':'round'});
+    person.appendChild(el('circle',{cx:cx,cy:cy-9,r:5.5}));
+    person.appendChild(el('path',{d:'M'+(cx-8.5)+','+(cy+12)+' Q'+(cx-8.5)+','+(cy-1)+' '+cx+','+(cy-1)+' Q'+(cx+8.5)+','+(cy-1)+' '+(cx+8.5)+','+(cy+12)+' Z'}));
+    layer.appendChild(person);
+    layer.appendChild(el('text',{x:cx,y:cy-24,'text-anchor':'middle','font-size':13,'font-weight':800,fill:LIME,stroke:'#05060b','stroke-width':3,'paint-order':'stroke'},'나'));
+  }
+  svg.addEventListener('click',function(ev){
+    if(kReady||status!=='ok')return;
     var b=svg.getBoundingClientRect();
     var x=(ev.clientX-b.left)/b.width*SIZE, y=(ev.clientY-b.top)/b.height*SIZE;
-    var hit=null, best=20;
+    var hit=null,best=20;
     TOILETS.forEach(function(t){
       if(dist(t)>R)return;
-      var d=Math.hypot(px(t.dx)-x,py(t.dy)-y);
+      var o=off(me,t), d=Math.hypot(px(o.dx)-x,py(o.dy)-y);
       if(d<best){best=d;hit=t;}
     });
-    if(hit){sel=hit;render();return;}
-    sel=null;
-    me={x:(x-SIZE/2)*MPP,y:-(y-SIZE/2)*MPP};
-    render();
-  }
-  svg.addEventListener('click',pick);
-  document.getElementById('reset').addEventListener('click',function(){me={x:0,y:0};sel=null;render();});
+    if(hit){sel=hit;render(false);return;}
+    stopTrack('');sel=null;
+    var dx=(x-SIZE/2)*MPP, dy=-(y-SIZE/2)*MPP;
+    me={lat:me.lat+dy/110574,lon:me.lon+dx/(111320*Math.cos(me.lat*Math.PI/180))};
+    afterMove(false);
+  });
+
+  /* ---------- 화장실 데이터 (Overpass) ---------- */
   function overpass(i,query){
     var url=ENDPOINTS[i];
     if(!url)return Promise.reject(new Error('no endpoint'));
@@ -286,15 +358,52 @@
       .catch(function(){clearTimeout(timer);return overpass(i+1,query);});
   }
   function load(){
-    status='loading';render();
-    var q='[out:json][timeout:25];(node["amenity"="toilets"](around:'+FETCH_R+','+LAT0+','+LON0+');way["amenity"="toilets"](around:'+FETCH_R+','+LAT0+','+LON0+'););out center tags;';
+    if(fetching)return;
+    fetching=true;
+    if(!TOILETS.length){status='loading';render(false);}
+    var c={lat:me.lat,lon:me.lon};
+    var q='[out:json][timeout:25];(node["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+');way["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+'););out center tags;';
     overpass(0,q).then(function(data){
       TOILETS=(data.elements||[]).map(toToilet).filter(Boolean);
-      status=TOILETS.length?'ok':'error';render();
-    }).catch(function(){status='error';render();});
+      fetchC=c;status='ok';fetching=false;render(false);
+    }).catch(function(){
+      fetching=false;if(!TOILETS.length)status='error';render(false);
+    });
   }
-  sum.addEventListener('click',function(){ if(status==='error')load(); });
+  function afterMove(recenter){
+    if(!fetchC||(function(){var o=off(fetchC,me);return Math.sqrt(o.dx*o.dx+o.dy*o.dy)>REFETCH_M;})())load();
+    render(recenter);
+  }
+
+  /* ---------- 내 위치 실시간 ---------- */
+  function setMsg(t){locMsg.textContent=t;}
+  function stopTrack(msg){
+    if(watchId!=null&&navigator.geolocation){navigator.geolocation.clearWatch(watchId);}
+    watchId=null;tracking=false;locBtn.classList.remove('on');locBtn.textContent='📍 내 위치 실시간으로 보기';
+    if(msg!=null)setMsg(msg);
+  }
+  function startTrack(){
+    if(!navigator.geolocation){setMsg('이 브라우저는 위치 기능을 지원하지 않아요.');return;}
+    tracking=true;locBtn.classList.add('on');locBtn.textContent='📍 실시간 내 위치 끄기';setMsg('위치 찾는 중… (권한 허용 창이 뜨면 "허용"을 눌러 주세요)');
+    var first=true;
+    watchId=navigator.geolocation.watchPosition(function(p){
+      me={lat:p.coords.latitude,lon:p.coords.longitude};sel=sel;
+      setMsg('📡 실시간 내 위치 · 정확도 약 '+Math.round(p.coords.accuracy)+'m');
+      if(first){firstFit=true;first=false;}
+      afterMove(true);
+    },function(err){
+      stopTrack(err&&err.code===1?'위치 권한이 꺼져 있어요. 주소창의 위치 설정에서 허용해 주세요. (https 주소에서만 동작해요)':'위치를 가져오지 못했어요. 잠시 뒤 다시 눌러 주세요.');
+    },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  }
+  locBtn.addEventListener('click',function(){if(tracking)stopTrack('실시간 위치를 껐어요.');else startTrack();});
+  document.getElementById('reset').addEventListener('click',function(){
+    stopTrack('');me={lat:START.lat,lon:START.lon};sel=null;firstFit=true;afterMove(true);
+  });
+  sum.addEventListener('click',function(){if(status==='error')load();});
+
+  render(false);
   load();
+  initKakao();
 })();
 </script>
 </body>
