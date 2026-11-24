@@ -107,6 +107,7 @@
 
   <div class="route" id="route"></div>
   <div class="summary" id="summary"></div>
+  <div class="rn" id="srcnote" style="margin:-4px 2px 10px;cursor:pointer"></div>
   <div id="list"></div>
   <button class="locbtn" id="loc">📍 내 위치 실시간으로 보기</button>
   <div class="locmsg" id="locmsg"></div>
@@ -126,14 +127,16 @@
   var START={lat:35.1860,lon:129.0813};   // 연산역(가상 시작점)
   var FETCH_R=1000, REFETCH_M=350;
   var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.openstreetmap.ru/api/interpreter'];
-  var lastErr='';
+  var lastErr='', srcNote='';
+  // 예비 데이터(Overpass가 모두 막혔을 때만 사용): 내가 저장해 둔 읽기 전용 목록
+  var SB_URL='https://zvndygyxadtddiijzjap.supabase.co', SB_KEY='sb_publishable_VF3_0zqAseSh68vx8XOBpg_sHTvtg_d';
 
   var me={lat:START.lat,lon:START.lon}, tracking=false, watchId=null, sel=null, firstFit=true;
   var TOILETS=[], status='loading', fetchC=null, fetching=false;
   var kmap=null, kReady=false, kObjs=[];
   var svg=document.getElementById('map'), layer=document.getElementById('layer');
   var list=document.getElementById('list'), sum=document.getElementById('summary'), routeEl=document.getElementById('route');
-  var kbox=document.getElementById('kmap'), locBtn=document.getElementById('loc'), locMsg=document.getElementById('locmsg');
+  var srcEl=document.getElementById('srcnote'), kbox=document.getElementById('kmap'), locBtn=document.getElementById('loc'), locMsg=document.getElementById('locmsg');
   var NS='http://www.w3.org/2000/svg';
 
   // <parse>
@@ -141,8 +144,8 @@
   function parseHours(oh){
     if(!oh)return null;
     var t=String(oh).trim();
-    if(/^24\/7$/i.test(t))return {all:true,text:'24시간'};
-    var m=t.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+    if(/^24\/7$/i.test(t)||/^24시간$/.test(t))return {all:true,text:'24시간'};
+    var m=t.match(/(\d{1,2}):(\d{2})\s*[-~]\s*(\d{1,2}):(\d{2})/);
     if(!m)return null;
     var s0=(+m[1])*60+(+m[2]), e0=(+m[3])*60+(+m[4]);
     if(e0<=s0)e0+=1440;
@@ -196,6 +199,7 @@
   /* ---------- 화면 ---------- */
   function render(recenter){
     var rows=[],inside=[],shown=[],target=null;
+    srcEl.textContent=srcNote;
     if(status!=='ok'){
       list.innerHTML='';routeEl.innerHTML='';
       sum.innerHTML=status==='loading'?'⏳ 화장실 목록 불러오는 중…':'😥 목록을 불러오지 못했어요';
@@ -356,7 +360,7 @@
       var left=ENDPOINTS.length, errs=[], done=false;
       ENDPOINTS.forEach(function(url){
         var ctl=('AbortController' in window)?new AbortController():null;
-        var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
+        var timer=setTimeout(function(){if(ctl)ctl.abort();},25000);
         fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(query),signal:ctl?ctl.signal:undefined})
           .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
           .then(function(j){clearTimeout(timer);if(!done){done=true;resolve(j);}})
@@ -368,17 +372,40 @@
       });
     });
   }
+  function bboxOf(c,r){
+    var dlat=r/110574, dlon=r/(111320*Math.cos(c.lat*Math.PI/180));
+    return [c.lat-dlat,c.lon-dlon,c.lat+dlat,c.lon+dlon].map(function(v){return v.toFixed(6);}).join(',');
+  }
+  function fromSaved(rows){
+    return rows.filter(function(r){return r.est_dx_m!=null&&r.est_dy_m!=null;}).map(function(r){
+      var lat=START.lat+r.est_dy_m/110574, lon=START.lon+r.est_dx_m/(111320*Math.cos(START.lat*Math.PI/180));
+      return {name:r.name,named:true,type:r.kind,lat:lat,lon:lon,addr:r.address,hp:parseHours(r.hours),amen:(r.amenities||[]).join(' · ')||'편의시설 정보 없음'};
+    });
+  }
+  function fallback(){
+    return fetch(SB_URL+'/rest/v1/toilets?select=name,address,kind,hours,amenities,est_dx_m,est_dy_m&order=id',{headers:{apikey:SB_KEY}})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(function(rows){
+        var t=fromSaved(rows);
+        if(!t.length)throw new Error('빈 목록');
+        TOILETS=t;fetchC={lat:me.lat,lon:me.lon};status='ok';
+        srcNote='⚠️ 실시간 지도 서버(Overpass)에 연결하지 못해, 미리 저장해 둔 연산역 일대 '+t.length+'곳(위치 대략)을 보여드려요. 여기를 눌러 실시간으로 다시 시도';
+      });
+  }
   function load(){
     if(fetching)return;
     fetching=true;
     if(!TOILETS.length){status='loading';render(false);}
-    var c={lat:me.lat,lon:me.lon};
-    var q='[out:json][timeout:25];(node["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+');way["amenity"="toilets"](around:'+FETCH_R+','+c.lat+','+c.lon+'););out center tags;';
+    var c={lat:me.lat,lon:me.lon}, bb=bboxOf(c,FETCH_R);
+    var q='[out:json][timeout:20];(node["amenity"="toilets"]('+bb+');way["amenity"="toilets"]('+bb+'););out center tags;';
     overpassAny(q).then(function(data){
       TOILETS=(data.elements||[]).map(toToilet).filter(Boolean);
-      fetchC=c;status='ok';fetching=false;render(false);
+      fetchC=c;status='ok';srcNote='';fetching=false;render(false);
     }).catch(function(e){
-      lastErr=String(e||'');fetching=false;if(!TOILETS.length)status='error';render(false);
+      lastErr=String(e||'');
+      if(TOILETS.length){fetching=false;render(false);return;}
+      fallback().then(function(){fetching=false;render(false);})
+        .catch(function(e2){lastErr+=' / 저장 목록: '+((e2&&e2.message)||'실패');fetching=false;status='error';render(false);});
     });
   }
   function afterMove(recenter){
@@ -411,6 +438,7 @@
     stopTrack('');me={lat:START.lat,lon:START.lon};sel=null;firstFit=true;afterMove(true);
   });
   sum.addEventListener('click',function(){if(status==='error')load();});
+  srcEl.addEventListener('click',function(){if(srcNote){TOILETS=[];fetching=false;load();}});
 
   render(false);
   load();
