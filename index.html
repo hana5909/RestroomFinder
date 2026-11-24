@@ -83,7 +83,6 @@
   .bar{display:flex;gap:8px;margin:0 0 6px}
   .bar button{flex:1;margin:0;padding:12px 8px;border-radius:14px;font-size:14px;font-weight:800;cursor:pointer}
   .bar .gps{border:1.5px solid var(--lime);background:rgba(182,255,59,.08);color:var(--lime)}
-  .bar .home{border:1.5px solid var(--pink);background:transparent;color:var(--pink);text-shadow:0 0 8px rgba(255,43,214,.5)}
   .pop{position:relative;min-width:200px;max-width:250px;background:var(--navy2);color:var(--ink);border:1.5px solid var(--lime);border-radius:14px;padding:10px 12px;box-shadow:0 6px 22px rgba(0,0,0,.55);font-size:13px;line-height:1.4;transform:translateY(-44px)}
   .pop b{display:block;font-size:15px;margin-bottom:2px;padding-right:18px}
   .pop .px{position:absolute;right:8px;top:6px;cursor:pointer;color:var(--sub);font-size:16px}
@@ -101,7 +100,6 @@
 
   <div class="bar">
     <button class="gps" id="gps">📍 현재 내 GPS 위치로 찾기</button>
-    <button class="home" id="home">🧍 연산역으로 되돌리기</button>
   </div>
   <div class="locmsg" id="locmsg"></div>
 
@@ -263,11 +261,6 @@
       setMsg(err&&err.code===1?'위치 권한이 꺼져 있어요. 주소창의 위치 설정에서 허용해 주세요. (https 주소에서만 동작해요)':'GPS 위치를 가져오지 못했어요. 잠시 뒤 다시 눌러 주세요.');
     },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
   });
-  document.getElementById('home').addEventListener('click',function(){
-    if(!map)return;
-    moveMe(START.lat,START.lon,true);setMsg('연산역(가상 위치)으로 돌아왔어요.');
-  });
-
   /* ---------- 카카오맵 SDK 불러오기 (services 라이브러리 포함) ---------- */
   showStatus('⏳ 지도를 불러오는 중…');
   var sc=document.createElement('script');
@@ -276,7 +269,10 @@
     try{kakao.maps.load(startMap);}
     catch(e){showStatus('😥 지도를 시작하지 못했어요','카카오 JavaScript 키와 도메인 등록을 확인해 주세요.');}
   };
-  sc.onerror=function(){showStatus('😥 카카오맵을 불러오지 못했어요','인터넷 연결과, 카카오 디벨로퍼스의 JavaScript SDK 도메인 등록·카카오맵 사용 설정을 확인해 주세요.');};
+  sc.onerror=function(){
+    var o=location.origin&&location.origin!=='null'?location.origin:'(이 페이지의 주소)';
+    showStatus('😥 카카오맵을 불러오지 못했어요','카카오가 이 주소를 허용하지 않았을 가능성이 가장 커요. 카카오 디벨로퍼스 [앱] > [플랫폼 키] > [JavaScript 키] > [JavaScript SDK 도메인]에 이 주소를 그대로 등록해 주세요: '+o+'  (그리고 [카카오맵] 사용 설정이 ON인지, 입력한 키가 JavaScript 키인지 확인해 주세요.)');
+  };
   document.head.appendChild(sc);
 })();
 </script>
